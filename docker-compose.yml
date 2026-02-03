@@ -1,0 +1,23 @@
+services:
+  gpu-lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - TORCH_CUDA_ARCH_LIST=8.9
+    volumes:
+      # Mount project code
+      - .:/workspace
+      # Mount output directory for profiler reports
+      - ./output:/output
+    working_dir: /workspace
+    # Allow profiling (needed for Nsight Compute)
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    stdin_open: true
+    tty: true

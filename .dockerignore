@@ -1,0 +1,17 @@
+# Ignore profiler output files (large binaries)
+output/*.nsys-rep
+output/*.ncu-rep
+output/*.sqlite
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+
+# Editor files
+.vscode/
+.idea/
+*.swp

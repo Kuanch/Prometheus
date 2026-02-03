@@ -1,0 +1,41 @@
+# Editor and IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# CUDA build artifacts
+*.o
+*.cubin
+*.fatbin
+
+# Profiler outputs (large binary files)
+output/*.nsys-rep
+output/*.ncu-rep
+output/*.sqlite
+output/*.qdrep
+
+# Environment
+.env
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local settings
+.local/
+.settings/

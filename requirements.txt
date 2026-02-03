@@ -1,0 +1,10 @@
+# GPU Architecture Learning - Python Dependencies
+
+# Table formatting for experiment output
+tabulate>=0.9.0
+
+# Numerical operations
+numpy>=1.24.0
+
+# For building CUDA extensions (usually included in base image)
+ninja
