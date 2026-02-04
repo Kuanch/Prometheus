@@ -10,7 +10,9 @@ This document explains the methodology, interpretation, and future directions fo
 4. [Experiment 3: Matrix Multiplication](#experiment-3-matrix-multiplication)
 5. [Experiment 4: Memory Access Patterns](#experiment-4-memory-access-patterns)
 6. [Experiment 5: Overhead Analysis](#experiment-5-overhead-analysis)
-7. [Future Roadmap](#future-roadmap)
+7. [Experiment 6: Llama 3.1 8B Inference](#experiment-6-llama-31-8b-inference)
+8. [Experiment 7: Grouped Query Attention (GQA)](#experiment-7-grouped-query-attention-gqa)
+9. [Future Roadmap](#future-roadmap)
 
 ---
 
@@ -321,6 +323,117 @@ Kernel launch overhead: ~5-10 μs
 | 1K elements | ~1 μs | 90%+ |
 | 1M elements | ~50 μs | 10-20% |
 | 64M elements | ~1 ms | <1% |
+
+---
+
+## Experiment 6: Llama 3.1 8B Inference
+
+**File**: `experiments/06_llama_inference.py`
+
+### Purpose
+
+Profile a real Llama 3.1 8B transformer model during inference, observing the difference between prefill and decode phases.
+
+### Prerequisites
+
+- Llama 3.1 8B model files (safetensors + tokenizer) at `/workspace/llama/` or set `LLAMA_MODEL_PATH`
+- Uses 4-bit NF4 quantization to fit within 8GB VRAM
+
+### What It Measures
+
+| Phase | Behavior | Bottleneck |
+|-------|----------|------------|
+| Prefill | Process all prompt tokens in parallel | Compute-bound (large batched matmuls) |
+| Decode | Generate one token at a time | Memory-bound (reads entire KV-cache per step) |
+
+### Profiling Features
+
+- **NVTX annotations** on every transformer layer and sublayer (Attention, MLP, Norm)
+- **LayerProfiler hooks** automatically tag each layer for Nsight timeline
+- **Step-by-step decode** with per-token timing for detailed analysis
+- **Three phases**: prefill benchmark, full generation, step-by-step decode
+
+### How to Run
+
+```bash
+# Direct run
+python experiments/06_llama_inference.py
+
+# With Nsight Systems
+nsys profile --trace=cuda,nvtx -o /output/llama_nsys python experiments/06_llama_inference.py
+```
+
+### Interpreting Results
+
+- **Prefill tokens/sec >> Decode tokens/sec**: Prefill processes all tokens in one batched matmul; decode does one at a time
+- **In Nsight timeline**: Large cuBLAS kernels during prefill vs many small repeated kernels during decode
+- **KV-cache growth**: Each decode step reads more data as the cache grows
+
+---
+
+## Experiment 7: Grouped Query Attention (GQA)
+
+**File**: `experiments/07_gqa_attention.py`
+
+### Purpose
+
+Implement Llama 3's Grouped Query Attention from scratch with every fundamental operation decoupled for individual Nsight profiling. See [LLAMA.md](LLAMA.md) for full architecture details.
+
+### Architecture
+
+Uses Llama 3 8B attention dimensions:
+- `d_model=4096`, `n_heads=32`, `n_kv_heads=8`, `head_dim=128`
+- 4 query heads share each KV head
+- RoPE with theta=500,000, causal masking, no bias
+
+### Decoupled Operations
+
+Each operation is a separate method with its own NVTX range:
+
+| # | Operation | Type | Shape (8B, B=2, S=512) |
+|---|-----------|------|------------------------|
+| 01 | Q projection | GEMM | [1024, 4096] @ [4096, 4096] |
+| 02 | K projection | GEMM | [1024, 4096] @ [4096, 1024] |
+| 03 | V projection | GEMM | [1024, 4096] @ [4096, 1024] |
+| 04 | RoPE on Q | Element-wise | [2, 32, 512, 128] |
+| 05 | RoPE on K | Element-wise | [2, 8, 512, 128] |
+| 06 | KV expansion | Repeat/view | 8 heads -> 32 heads |
+| 07 | Q @ K^T | Batched GEMM | [64, 512, 128] @ [64, 128, 512] |
+| 08 | Causal mask | Element-wise | [2, 32, 512, 512] |
+| 09 | Softmax | Reduction | [2, 32, 512, 512] |
+| 10 | Attn @ V | Batched GEMM | [64, 512, 512] @ [64, 512, 128] |
+| 11 | Output projection | GEMM | [1024, 4096] @ [4096, 4096] |
+
+### Profiling Phases
+
+1. **Individual operation profiling**: Benchmark each of the 11 ops separately with FLOP/bandwidth metrics
+2. **End-to-end forward**: Full GQA as a single unit
+3. **GQA vs MHA vs MQA**: Compare 8 KV heads vs 32 vs 1
+4. **Sequence length sweep**: Show quadratic scaling of attention ops
+
+### How to Run
+
+```bash
+python experiments/07_gqa_attention.py
+
+nsys profile --trace=cuda,nvtx -o /output/gqa_nsys python experiments/07_gqa_attention.py
+```
+
+### Key Insights
+
+- **Projections (Q, O) dominate at short sequences**: Large GEMMs, compute-bound
+- **Attention matmuls (Q@K^T, Attn@V) dominate at long sequences**: O(S^2) scaling
+- **GQA vs MHA**: K/V projection cost reduced 4x, KV cache reduced 4x, attention compute unchanged (after expansion)
+- **KV expansion is nearly free**: `expand()` is a view operation, no data copy
+- **RoPE is negligible**: Cheap element-wise multiply, fully memory-bound
+
+### Arithmetic Intensity
+
+```
+Q/K/V/O projections: AI = d_model / 6 ≈ 683 FLOPs/byte  (compute-bound)
+Q @ K^T:             AI = S / 6 ≈ 85 FLOPs/byte at S=512 (compute-bound)
+Softmax:             AI < 1 FLOPs/byte                    (memory-bound)
+```
 
 ---
 

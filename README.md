@@ -21,6 +21,8 @@ This project answers these questions through hands-on experiments:
 | Compute Throughput | Matrix Multiply | cuBLAS is 10-100x faster than naive CUDA |
 | Memory Coalescing | Memory Patterns | Strided access can be 10-30x slower |
 | Framework Overhead | Overhead Analysis | Matters for small ops, negligible for large ops |
+| Real Model Inference | Llama Inference | Prefill is compute-bound, decode is memory-bound |
+| Attention Internals | GQA Attention | GQA reduces KV cache 4x with minimal quality loss |
 
 ## Quick Start
 
@@ -84,7 +86,9 @@ GPU_arch_modeling/
 │   ├── 02_relu.py         # Element-wise operations
 │   ├── 03_matmul.py       # Compute-bound comparison
 │   ├── 04_memory_patterns.py  # Coalescing experiments
-│   └── 05_overhead_analysis.py # Framework overhead
+│   ├── 05_overhead_analysis.py # Framework overhead
+│   ├── 06_llama_inference.py   # Llama 3.1 8B inference profiling
+│   └── 07_gqa_attention.py     # Grouped Query Attention (GQA)
 ├── kernels/               # Custom CUDA implementations
 │   ├── vector_add.cu      # Simple kernel (learning baseline)
 │   ├── relu.cu            # Multiple ReLU variants
@@ -126,6 +130,19 @@ Measures the cost of:
 - Many small ops vs few large ops
 
 This explains why `torch.compile()` and fused kernels matter for transformers.
+
+### 6. Llama 3.1 8B Inference
+Profiles a real Llama 3.1 8B model with 4-bit quantization:
+- **Prefill** (prompt processing): compute-bound, large batched matmuls
+- **Decode** (token generation): memory-bound, reads entire KV-cache per step
+- NVTX annotations on every layer and sublayer for Nsight timeline analysis
+
+### 7. Grouped Query Attention (GQA)
+Implements Llama 3's GQA from scratch with every operation decoupled for profiling:
+- Q/K/V projections, RoPE, KV head expansion, Q@K^T, causal mask, softmax, Attn@V, output projection
+- Compares GQA (8 KV heads) vs MHA (32 KV heads) vs MQA (1 KV head)
+- Sequence length sweep showing quadratic attention scaling
+- See [LLAMA.md](LLAMA.md) for full Llama 3 architecture notes
 
 ## Profiling with Nsight
 

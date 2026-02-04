@@ -53,7 +53,9 @@ GPU_arch_modeling/
 │   ├── 02_relu.py          # Element-wise operation variants
 │   ├── 03_matmul.py        # cuBLAS vs naive vs tiled performance
 │   ├── 04_memory_patterns.py # Memory coalescing impact (10-30x)
-│   └── 05_overhead_analysis.py # Kernel launch + Python overhead
+│   ├── 05_overhead_analysis.py # Kernel launch + Python overhead
+│   ├── 06_llama_inference.py   # Llama 3.1 8B prefill/decode profiling
+│   └── 07_gqa_attention.py     # Decoupled GQA ops for Nsight profiling
 ├── utils/
 │   └── profiler.py         # GPUProfiler class, CUDA event timing
 ├── scripts/
