@@ -118,6 +118,35 @@ case "$1" in
         nsys stats "$REPORT"
         ;;
 
+    # Llama inference profiling with NVTX annotations
+    "llama-nsys")
+        print_header "Nsight Systems: Llama Inference (NVTX)"
+
+        nsys profile \
+            --trace=cuda,nvtx,osrt \
+            --nvtx-capture=range@Full_Generation \
+            --stats=true \
+            --force-overwrite=true \
+            -o "$OUTPUT_DIR/llama_nsys" \
+            python "$WORKSPACE/experiments/06_llama_inference.py"
+
+        echo -e "\n${GREEN}Report saved to: $OUTPUT_DIR/llama_nsys.nsys-rep${NC}"
+        echo "Open in Nsight Systems GUI - look for NVTX ranges: Layer_0..31, Attention, MLP"
+        ;;
+
+    "llama-ncu")
+        print_header "Nsight Compute: Llama Kernels"
+
+        ncu \
+            --launch-count 50 \
+            --set full \
+            --force-overwrite \
+            --export "$OUTPUT_DIR/llama_ncu" \
+            python "$WORKSPACE/experiments/06_llama_inference.py"
+
+        echo -e "\n${GREEN}Report saved to: $OUTPUT_DIR/llama_ncu.ncu-rep${NC}"
+        ;;
+
     # List available experiments
     "list")
         print_header "Available Experiments"
@@ -126,6 +155,7 @@ case "$1" in
         echo "  03_matmul          - Compute-bound: matrix multiplication"
         echo "  04_memory_patterns - Memory access pattern analysis"
         echo "  05_overhead_analysis - Framework overhead measurement"
+        echo "  06_llama_inference - Llama 3.1 8B inference profiling"
         ;;
 
     # Help
@@ -141,6 +171,8 @@ case "$1" in
         echo "  ncu-kernel <name> [exp]    Profile specific kernel"
         echo "  ncu-memory [experiment]    Memory-focused analysis"
         echo "  nsys-stats [report]        Print stats from nsys report"
+        echo "  llama-nsys                 Profile Llama inference (Nsight Systems)"
+        echo "  llama-ncu                  Profile Llama kernels (Nsight Compute)"
         echo "  list                       List available experiments"
         echo ""
         echo "Examples:"
@@ -148,6 +180,7 @@ case "$1" in
         echo "  ./run_profiler.sh nsys 01_vector_add"
         echo "  ./run_profiler.sh ncu 03_matmul"
         echo "  ./run_profiler.sh ncu-kernel matmul_tiled_kernel 03_matmul"
+        echo "  ./run_profiler.sh llama-nsys"
         echo ""
         echo "Output files are saved to: $OUTPUT_DIR/"
         echo "View .nsys-rep files in Nsight Systems GUI"

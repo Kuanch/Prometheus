@@ -8,3 +8,10 @@ numpy>=1.24.0
 
 # For building CUDA extensions (usually included in base image)
 ninja
+
+# Transformer model inference
+transformers>=4.40.0
+accelerate>=0.27.0
+bitsandbytes>=0.43.0
+safetensors>=0.4.0
+sentencepiece>=0.2.0

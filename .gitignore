@@ -39,3 +39,11 @@ Thumbs.db
 # Local settings
 .local/
 .settings/
+
+# Model weights (large files)
+llama/
+models/
+*.safetensors
+*.bin
+*.gguf
+llama_url.txt
