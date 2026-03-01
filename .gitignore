@@ -21,11 +21,8 @@ build/
 *.cubin
 *.fatbin
 
-# Profiler outputs (large binary files)
-output/*.nsys-rep
-output/*.ncu-rep
-output/*.sqlite
-output/*.qdrep
+# Profiler outputs and generated data
+output/
 
 # Environment
 .env
