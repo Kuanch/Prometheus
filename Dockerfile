@@ -1,7 +1,7 @@
 # GPU Architecture Learning Environment
 # Base: NVIDIA PyTorch container with CUDA toolkit, cuDNN, and Nsight tools
 
-FROM nvcr.io/nvidia/pytorch:24.01-py3
+FROM nvcr.io/nvidia/pytorch:25.04-py3
 
 # Install additional tools for kernel development
 RUN apt-get update && apt-get install -y --no-install-recommends \

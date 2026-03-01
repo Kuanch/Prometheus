@@ -6,7 +6,7 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NVIDIA_DRIVER_CAPABILITIES=all
       - TORCH_CUDA_ARCH_LIST=8.9
     volumes:
       # Mount project code
