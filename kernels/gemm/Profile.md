@@ -1,4 +1,74 @@
-# cuBLAS SGEMM Profiling — RTX 4060 Laptop (Ada Lovelace, SM89)
+# GEMM Profiling — RTX 4060 Laptop (Ada Lovelace, SM89)
+
+---
+
+## FP16 2:4 Sparse GEMM (`gemm_sparse_fp16.cu`)
+
+### What it does
+
+Benchmarks three FP16 GEMM paths (M=N=K=4096):
+
+| Path | Library | Accumulate | Notes |
+|------|---------|-----------|-------|
+| A | `cublasHgemm` | FP16 | Dense, fastest pure-FP16 |
+| B | `cublasGemmEx` | FP32 | Dense, numerically stable |
+| C | `cusparseLtMatmul` | FP32 | 2:4 Sparse Tensor Cores (~2x peak) |
+
+**2:4 sparsity rule** — in every 4 consecutive values along the K dimension of A, exactly 2 must be zero.
+cuSPARSELt's `cusparseLtSpMMAPrune` (STRIP mode) enforces this by zeroing the 2 smallest-magnitude values per group of 4, then compresses A into a packed format that halves its memory footprint and enables the dedicated Sparse Tensor Core path.
+
+### Compile
+
+```bash
+docker compose run --rm gpu-lab bash -c \
+  "nvcc -o /output/gemm_sparse_fp16 \
+        /workspace/kernels/gemm/gemm_sparse_fp16.cu \
+        -lcublas -lcusparseLt -O2 -arch=sm_80 \
+   && /output/gemm_sparse_fp16"
+```
+
+For Ada (RTX 40xx) or Ampere (A6000):
+```bash
+# Ada Lovelace
+-arch=sm_89
+# Ampere A6000
+-arch=sm_86
+```
+
+### Profile
+
+```bash
+# Nsight Systems (timeline)
+docker compose run --rm gpu-lab \
+  nsys profile -o /output/gemm_sparse_fp16 /output/gemm_sparse_fp16
+
+# Nsight Compute (per-kernel counters)
+docker compose run --rm gpu-lab \
+  ncu --set basic -o /output/gemm_sparse_fp16_ncu /output/gemm_sparse_fp16
+```
+
+### Expected results (A6000 Ampere, SM86)
+
+```
+A. cublasHgemm (FP16 accum)           ~1.2 ms   ~112 TFLOPS
+B. cublasGemmEx (FP32 accum)          ~1.2 ms   ~112 TFLOPS
+C. cuSPARSELt 2:4 sparse (FP32 accum) ~0.6 ms   ~220 TFLOPS  (~2x)
+```
+
+### Why 2:4 sparsity hits ~2x
+
+NVIDIA Sparse Tensor Cores decode the 2-bit metadata to skip the zero multiplications entirely, issuing two FMAs per 4-element group instead of four — so the throughput doubles without changing the clock rate or SM count.  Compression also cuts the A memory traffic by ~50%, which helps for smaller K values.
+
+### Limitations
+
+- A can be sparse; B must be dense
+- Requires Ampere or newer (SM80+) — no effect on older GPUs
+- Pruning introduces a small accuracy loss (expect ~0.1–0.5% relative error vs dense)
+- cuSPARSELt is a separate library (`-lcusparseLt`); verify it is present with `ldconfig -p | grep cusparseLt`
+
+---
+
+## cuBLAS SGEMM Profiling — RTX 4060 Laptop (Ada Lovelace, SM89)
 
 ## Setup
 
