@@ -34,6 +34,10 @@ zero-cost Warp context switching (Latency Hiding). When a Warp stalls during
 Execute or WriteBack, the Scheduler immediately switches to another Warp in the
 next cycle, keeping the backend pipeline fed.
 
+> **Fact-Check Correction (Section 1 — Multiple Warp Schedulers):** The document refers to "**the** Warp Scheduler" (singular) throughout all sections, but this is incorrect for every NVIDIA architecture since Fermi (2010). Ampere SM86 (A6000) has **4 sub-partitions (SMSPs), each with its own independent warp scheduler and dispatch unit**. Each scheduler manages a subset of resident warps, assigned by warp ID mod 4. This is not a cosmetic detail — it fundamentally invalidates the latency-hiding arithmetic in Section 4. With 8 resident warps and 4 schedulers, each scheduler sees only **2 warps**, not 8. Every statement in Sections 3–4 about "8 warps available to the scheduler" should read "2 warps available to each of the 4 schedulers." See the Section 4 correction for the full impact on the math.
+>
+> Additionally, the analogy "a Warp maps directly to a CPU Hardware Thread (e.g., an SMT thread)" is imprecise. A warp is **32 SIMT threads** sharing one PC and executing in lockstep — more analogous to an SMT context whose every instruction is implicitly a **SIMD/vector operation across 32 data lanes**. The *scheduling* analogy (warp ≈ hardware thread context that can be switched at zero cost) holds, but the *execution model* difference (scalar vs 32-wide SIMT) should be noted to avoid confusion.
+
 ---
 
 ## 2. Occupancy Bottleneck (16.67%): Static Resource Exhaustion
@@ -88,6 +92,8 @@ Warps available, the frontend suffers severe **pipeline starvation**.
   The remaining ~89 cycles produce no issues, as there are no backup Warps to
   fill the gap — yielding a metric of 10.65%.
 
+> **Fact-Check Correction (Section 3 — Warp-per-Scheduler Count):** The statement "with only 8 Resident Warps" feeding into the scheduler starvation argument inherits the single-scheduler error from Section 1. With 4 SMSPs, each scheduler sees only **2 warps**, making the starvation far more severe than presented. When both warps on a given scheduler are stalled (which happens frequently with only 2), that scheduler has **zero** ready warps — a complete bubble. The metric "Issue Slots Busy" (`smsp__issue_active.avg.pct_of_peak_sustained_elapsed`) is reported per-SMSP and averaged, so 10.65% means each individual scheduler was active only ~10.65% of cycles. The description of the *mechanism* (dependency stall → no ready warps → bubble) is correct, but the scale is understated: 2 warps per scheduler is far more fragile than 8 warps feeding a single scheduler.
+
 > **Claude Comment:** The document treats "Data Dependency Stall" as a single cause, but Nsight Compute's **Warp State Statistics** disaggregates stalls into distinct hardware reasons: `Long Scoreboard` (waiting on slow memory ops), `Short Scoreboard` (register-to-register latency), `MIO Throttle` (shared memory / texture pipe saturated), `Wait` (explicit `bar.sync` or `cp.async` fence), and others. For a cuSPARSELt kernel, the dominant stall is almost certainly `Long Scoreboard` (waiting for Global→Shared async copies to land) or `Wait` (cp.async barriers between pipeline stages) — *not* a generic dependency stall. This distinction matters enormously for optimization: `Long Scoreboard` means the async copy pipeline needs more stages; `MIO Throttle` means shared memory bank conflicts or pipe saturation; `Wait` means the compute-to-copy overlap ratio is wrong. Knowing the issue rate is 10.65% tells you *that* the frontend is starved; the Warp State histogram tells you *why*.
 
 ---
@@ -139,6 +145,12 @@ Within a 100-cycle window:
   issue slots continuously. The system only has 8 Resident Warps — just short of
   what is needed to fully cover the latency — which leaves the remaining ~51% of
   pipeline cycles idle.
+
+> **Fact-Check Correction (Section 4 — Critical Error in "Just Short" Claim):** The statement "The system only has 8 Resident Warps — just short of what is needed" is **seriously misleading** because it ignores the 4-scheduler SM architecture. Since Ampere SM86 has 4 independent warp schedulers (one per SMSP), the 8 resident warps are distributed as **~2 warps per scheduler** (assigned by warp ID mod 4). Each scheduler independently needs ~9 ready warps to hide 40 cycles of tensor latency at II ≈ 4.5. The actual deficit is **2 vs ~9 per scheduler (78% shortfall)**, not 8 vs 9 total (11% shortfall). The document creates the false impression the system is barely missing its target, when each scheduler is in fact severely under-provisioned.
+>
+> The mathematical model `~11 issues × 4.5 cycles ≈ 49%` still holds per SMSP — but the explanation of *why* the issue rate reaches ~10.65% with only 2 warps per scheduler is wrong. Pure warp-rotation (TLP) with 2 warps and ~40 cycles of dependency latency would yield only `2 / 40 = 5%` issue rate. The observed ~10.65% — roughly double — implies each warp contributes **~2 independent issues per scheduling window** through **ILP (Instruction-Level Parallelism)** before hitting a true dependency stall. This is consistent with high-register Tensor Core kernels that unroll multiple independent MMA/load operations within a single warp.
+>
+> **Corrected explanation:** With 2 warps per scheduler and each warp exposing ~2 independent instructions per visit, the effective issue count is ~4 per 40-cycle window per scheduler → `4/40 ≈ 10%`. Each issue keeps the tensor pipe active for ~4.5 cycles → `~10% × 4.5 ≈ 45–49%` pipeline utilization. The ~49% is achieved primarily through **ILP within each warp**, not TLP from warp rotation. This aligns with Gemini's observation that ILP, not warp count, is the primary latency-hiding mechanism in these kernels.
 
 > **Gemini Comment:** The math effectively demonstrates the TLP (Thread-Level Parallelism) latency hiding model, but it overlooks **ILP (Instruction-Level Parallelism)**. A single large warp holding 255 registers can hide its *own* latency if it has enough independent instructions unrolled. For example, while waiting 40 cycles for an instruction to complete, the *same* warp can issue multiple other independent instructions in subsequent cycles, since they operate on different register tiles. If pipeline utilization stalls at 48.9%, the warp likely hit a barrier (e.g., waiting for the next data tile to load from Shared Memory) rather than purely lacking a 9th warp to switch to.
 
